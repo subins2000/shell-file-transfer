@@ -2,6 +2,10 @@
 
 Share files between your machine and any remote shell (Bash or Rails console or anything that can do HTTP requests) via a Cloudflare tunnel.
 
+SSH is usually how shell file transfer is done, but when I get an AWS or Heroku shell using their CLI, idk the SSH creds to do `scp`.
+
+In this case, I find it easier to transfer files via HTTPS. This tool is to make that super easy.
+
 ## Terminologies
 
 * Local host machine: Whichever machine that has this git repo and hosts the server using cloudflared
