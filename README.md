@@ -6,7 +6,7 @@ SSH is usually how shell file transfer is done, but when I get an AWS or Heroku 
 
 In this case, I find it easier to transfer files via HTTPS. This tool is to make that super easy.
 
-**Warning: This eval stunt is performed by a trained professional**
+**WARNING: This EVAL stunt is performed by a trained professional**
 
 ## Terminologies
 
