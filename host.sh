@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+
+# Copyright (C) 2026 Subin Siby <mail@subinsb.com>
+# License: AGPL-3.0
+
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
