@@ -1,20 +1,25 @@
-# Remote Shell File Transfer
+# Shell File Transfer
 
 Share files between your machine and any remote shell (Bash or Rails console or anything that can do HTTP requests) via a Cloudflare tunnel.
 
+## Terminologies
+
+* Local host machine: Whichever machine that has this git repo and hosts the server using cloudflared
+* Remote shell: The client
+
 ## Prerequisites
 
-For your machine:
+For your local host machine:
 - `python3`
 - `cloudflared`
 
-For the remote shellL
+For the remote shell:
 - Bash: `curl`
 - Ruby console: Nothing, uses standard `net/http`
 
 ## How to use
 
-In your local machine:
+In your local host machine:
 
 ```bash
 git clone git@github.com:subins2000/shell-file-transfer.git
@@ -31,9 +36,10 @@ Then, either copy paste the relevant file in `client/` directly into the shell o
 ### Bash
 
 ```bash
-# Initial one-time setup
+# Initial one-time run
 export SFT_HOST='https://….trycloudflare.com'
 eval "$(curl -fsSL "$SFT_HOST/clients/bash.sh")"
+# ^ Or instead of eval, copy paste from clients/bash.sh
 
 # Usage
 sft_send path.txt
@@ -43,10 +49,11 @@ sft_receive filename.txt
 ### Ruby / Rails console
 
 ```ruby
-# Initial one-time setup
+# Initial one-time run
 ENV["SFT_HOST"] = "https://….trycloudflare.com"
 require "net/http"; require "uri"
 eval Net::HTTP.get(URI("#{ENV['SFT_HOST']}/clients/ruby.rb"))
+# ^ Or instead of eval, copy paste from clients/ruby.rb
 
 # Usage
 sft_send "path.txt"
