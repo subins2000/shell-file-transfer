@@ -80,15 +80,14 @@ Set env variable SFT_HOST=${TUNNEL_URL}
 Use any of the scripts in clients/ folder to start sharing files. Examples:
 
 # Ruby
-ENV["SFT_HOST"]='${TUNNEL_URL}'
-require "net/http"; require "uri"
-eval Net::HTTP.get(URI("#{ENV['SFT_HOST']}/clients/ruby.rb"))
+ENV["SFT_HOST"]='${TUNNEL_URL}';require "net/http"; require "uri"; eval Net::HTTP.get(URI("#{ENV['SFT_HOST']}/clients/ruby.rb"))
+
 sft_send "path.txt"
 sft_receive "path.txt"
 
 # Bash
-export SFT_HOST='${TUNNEL_URL}'
-eval "\$(curl -fsSL "\$SFT_HOST/clients/bash.sh")"
+export SFT_HOST='${TUNNEL_URL}'; eval "\$(curl -fsSL "\$SFT_HOST/clients/bash.sh")"
+
 sft_send "path.txt"
 sft_receive "path.txt"
 EOF
