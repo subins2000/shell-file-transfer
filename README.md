@@ -8,6 +8,12 @@ In this case, I find it easier to transfer files via HTTPS. This tool is to make
 
 **WARNING: This EVAL stunt is performed by a trained professional**
 
+## Features
+
+* Simple client scripts
+* Optional encryption so that the tunnel can't read payload
+* Uses the free-gratis Cloudflare tunnels
+
 ## Terminologies
 
 * Local host machine: Whichever machine that has this git repo and hosts the server using cloudflared
@@ -32,7 +38,8 @@ In your local host machine:
 git clone git@github.com:subins2000/shell-file-transfer.git
 cd shell-file-transfer
 ./host.sh
-# or, encrypt file bodies on the wire (Cloudflare cannot read payloads):
+
+# or, encrypt file bodies on the wire so that the tunnel Cloudflare cannot read payloads:
 ./host.sh --encrypt
 ```
 
@@ -40,7 +47,7 @@ Set the given `SFT_HOST` environment variable in the remote shell. With `--encry
 
 Then, either copy paste the relevant file in `clients/` directly into the shell or use the eval option.
 
-## Clients
+## In the remote client shell
 
 ### Bash
 
