@@ -1,10 +1,14 @@
+import sys
 import tempfile
 import threading
 import unittest
 from http.client import HTTPConnection
 from pathlib import Path
 
-import host_server
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+import server as host_server  # noqa: E402
 
 
 class SafeNameTests(unittest.TestCase):
@@ -99,6 +103,75 @@ class ServerIntegrationTests(unittest.TestCase):
         conn.request("POST", "/send?name=..", body=b"x")
         self.assertEqual(conn.getresponse().status, 400)
         conn.close()
+
+
+class EncryptServerTests(unittest.TestCase):
+    KEY = "test-session-key"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.storage = Path(self.tmp.name) / "storage"
+        self.clients = Path(self.tmp.name) / "clients"
+        self.storage.mkdir()
+        self.clients.mkdir()
+        self.httpd = host_server.make_server(
+            "127.0.0.1",
+            0,
+            storage_dir=self.storage,
+            clients_dir=self.clients,
+            sft_key=self.KEY,
+        )
+        self.port = self.httpd.server_address[1]
+        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+        self.thread.start()
+
+    def tearDown(self):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+        self.tmp.cleanup()
+
+    def _conn(self):
+        return HTTPConnection("127.0.0.1", self.port, timeout=5)
+
+    def test_rejects_plaintext_upload(self):
+        conn = self._conn()
+        conn.request(
+            "POST",
+            "/send?name=plain.txt",
+            body=b"not-encrypted",
+            headers={"Content-Type": "application/octet-stream"},
+        )
+        self.assertEqual(conn.getresponse().status, 400)
+        conn.close()
+        self.assertFalse((self.storage / "plain.txt").exists())
+
+    def test_encrypted_roundtrip_stores_plaintext(self):
+        plain = b"secret payload"
+        cipher = host_server.openssl_crypt(plain, key=self.KEY, decrypt=False)
+
+        conn = self._conn()
+        conn.request(
+            "POST",
+            "/send?name=secret.txt",
+            body=cipher,
+            headers={"Content-Type": "application/octet-stream"},
+        )
+        self.assertEqual(conn.getresponse().status, 200)
+        conn.close()
+
+        self.assertEqual((self.storage / "secret.txt").read_bytes(), plain)
+
+        conn = self._conn()
+        conn.request("GET", "/files/secret.txt")
+        resp = conn.getresponse()
+        self.assertEqual(resp.status, 200)
+        wire = resp.read()
+        conn.close()
+
+        self.assertNotEqual(wire, plain)
+        self.assertEqual(
+            host_server.openssl_crypt(wire, key=self.KEY, decrypt=True), plain
+        )
 
 
 if __name__ == "__main__":

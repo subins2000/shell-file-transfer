@@ -9,9 +9,24 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
 PORT="${SFT_PORT:-8090}"
+ENCRYPT=0
 PYTHON_SERVER_PID=""
 CLOUDFLARED_PID=""
 CLOUDFLARED_LOG="$(mktemp "${TMPDIR:-/tmp}/sft-cloudflared.XXXXXX")"
+
+for arg in "$@"; do
+  case "$arg" in
+    --encrypt) ENCRYPT=1 ;;
+    -h|--help)
+      echo "Usage: ./host.sh [--encrypt]"
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $arg (try --encrypt)" >&2
+      exit 1
+      ;;
+  esac
+done
 
 cleanup() {
   set +e
@@ -52,6 +67,7 @@ start_python_server() {
 }
 
 start_tunnel() {
+  echo "Starting tunnel..."
   need cloudflared
   cloudflared tunnel --url "http://localhost:${PORT}" --no-autoupdate \
     >"$CLOUDFLARED_LOG" 2>&1 &
@@ -75,9 +91,25 @@ start_tunnel() {
 }
 
 print_usage() {
-  cat <<EOF
-Set env variable SFT_HOST=${TUNNEL_URL}
-Use any of the scripts in clients/ folder to start sharing files. Examples:
+  if [[ "$ENCRYPT" -eq 1 ]]; then
+    cat <<EOF
+Copy-paste any of the *_enc scripts in clients/ folder into your remote shell. Or run these one-liners in your remote shell:
+
+# Ruby
+ENV["SFT_HOST"]='${TUNNEL_URL}'; ENV["SFT_KEY"]='${SFT_KEY}'; require "net/http"; require "uri"; require "openssl"; eval Net::HTTP.get(URI("#{ENV['SFT_HOST']}/clients/ruby_enc.rb"))
+
+sft_send "path.txt"
+sft_receive "path.txt"
+
+# Bash
+export SFT_HOST='${TUNNEL_URL}'; export SFT_KEY='${SFT_KEY}'; eval "\$(curl -fsSL "\$SFT_HOST/clients/bash_enc.sh")"
+
+sft_send "path.txt"
+sft_receive "path.txt"
+EOF
+  else
+    cat <<EOF
+Copy-paste any of the scripts in clients/ folder into your remote shell. Or run these one-liners in your remote shell:
 
 # Ruby
 ENV["SFT_HOST"]='${TUNNEL_URL}';require "net/http"; require "uri"; eval Net::HTTP.get(URI("#{ENV['SFT_HOST']}/clients/ruby.rb"))
@@ -91,7 +123,15 @@ export SFT_HOST='${TUNNEL_URL}'; eval "\$(curl -fsSL "\$SFT_HOST/clients/bash.sh
 sft_send "path.txt"
 sft_receive "path.txt"
 EOF
+  fi
 }
+
+if [[ "$ENCRYPT" -eq 1 ]]; then
+  need openssl
+  SFT_KEY="$(openssl rand -base64 32)"
+  export SFT_KEY
+  echo "Encryption enabled for this session."
+fi
 
 start_python_server
 start_tunnel

@@ -4,12 +4,15 @@
 from __future__ import annotations
 
 import argparse
+import os
+import subprocess
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 
 DEFAULT_PORT = 8090
+OPENSSL_ITER = "100000"
 
 
 def safe_name(raw: str) -> str:
@@ -21,16 +24,40 @@ def safe_name(raw: str) -> str:
     return name
 
 
+def openssl_crypt(data: bytes, *, key: str, decrypt: bool) -> bytes:
+    cmd = [
+        "openssl",
+        "enc",
+        "-aes-256-cbc",
+        "-pbkdf2",
+        "-iter",
+        OPENSSL_ITER,
+        "-pass",
+        "env:SFT_KEY",
+    ]
+    if decrypt:
+        cmd.insert(2, "-d")
+    env = os.environ.copy()
+    env["SFT_KEY"] = key
+    proc = subprocess.run(cmd, input=data, capture_output=True, env=env, check=False)
+    if proc.returncode != 0:
+        err = (proc.stderr or b"").decode(errors="replace").strip()
+        raise ValueError(err or "openssl failed")
+    return proc.stdout
+
+
 def make_server(
     host: str,
     port: int,
     storage_dir: Path | None = None,
     clients_dir: Path | None = None,
+    sft_key: str | None = None,
 ) -> ThreadingHTTPServer:
     root = Path(__file__).resolve().parent
     storage = Path(storage_dir) if storage_dir else root / "storage"
     clients = Path(clients_dir) if clients_dir else root / "clients"
     storage.mkdir(parents=True, exist_ok=True)
+    key = sft_key or None
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, fmt, *args):
@@ -72,6 +99,12 @@ def make_server(
                     self.send_error(404, "File not found")
                     return
                 data = file_path.read_bytes()
+                if key:
+                    try:
+                        data = openssl_crypt(data, key=key, decrypt=False)
+                    except ValueError:
+                        self.send_error(500, "Encrypt failed")
+                        return
                 self.send_response(200)
                 self.send_header("Content-Type", "application/octet-stream")
                 self.send_header("Content-Length", str(len(data)))
@@ -106,6 +139,12 @@ def make_server(
                 return
             length = int(self.headers.get("Content-Length", "0"))
             data = self.rfile.read(length)
+            if key:
+                try:
+                    data = openssl_crypt(data, key=key, decrypt=True)
+                except ValueError:
+                    self.send_error(400, "Decrypt failed")
+                    return
             dest = storage / filename
             dest.write_bytes(data)
             body = f"stored {filename} ({len(data)} bytes)\n".encode()
@@ -123,8 +162,10 @@ def main():
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     args = parser.parse_args()
-    httpd = make_server(args.host, args.port)
-    print(f"Serving HTTP on {args.host}:{args.port} ...", flush=True)
+    key = os.environ.get("SFT_KEY") or None
+    httpd = make_server(args.host, args.port, sft_key=key)
+    mode = "encrypt" if key else "plain"
+    print(f"Serving HTTP on {args.host}:{args.port} ({mode}) ...", flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

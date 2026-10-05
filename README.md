@@ -18,10 +18,11 @@ In this case, I find it easier to transfer files via HTTPS. This tool is to make
 For your local host machine:
 - `python3`
 - `cloudflared`
+- `openssl` (only if using `--encrypt`)
 
 For the remote shell:
-- Bash: `curl`
-- Ruby console: Nothing, uses standard `net/http`
+- Bash: `curl` (and `openssl` + `python3` for encrypted client)
+- Ruby console: stdlib only (`openssl` gem is part of MRI stdlib)
 
 ## How to use
 
@@ -31,11 +32,13 @@ In your local host machine:
 git clone git@github.com:subins2000/shell-file-transfer.git
 cd shell-file-transfer
 ./host.sh
+# or, encrypt file bodies on the wire (Cloudflare cannot read payloads):
+./host.sh --encrypt
 ```
 
-Set the given `SFT_HOST` environment variable in the remote shell.
+Set the given `SFT_HOST` environment variable in the remote shell. With `--encrypt`, also set `SFT_KEY`.
 
-Then, either copy paste the relevant file in `client/` directly into the shell or use the eval option.
+Then, either copy paste the relevant file in `clients/` directly into the shell or use the eval option.
 
 ## Clients
 
@@ -62,6 +65,31 @@ eval Net::HTTP.get(URI("#{ENV['SFT_HOST']}/clients/ruby.rb"))
 # ^ Or instead of eval, copy paste from clients/ruby.rb
 
 # Usage
+sft_send "path.txt"
+sft_receive "filename.txt"
+```
+
+### Encrypted wire (`./host.sh --encrypt`)
+
+Uses AES-256-CBC via `openssl enc -pbkdf2`. Bodies are encrypted in transit; files in host `storage/` stay plaintext. Plaintext uploads are rejected.
+
+```bash
+# Bash
+export SFT_HOST='https://….trycloudflare.com'
+export SFT_KEY='…'   # printed by host.sh
+eval "$(curl -fsSL "$SFT_HOST/clients/bash_enc.sh")"
+
+sft_send path.txt
+sft_receive filename.txt
+```
+
+```ruby
+# Ruby
+ENV["SFT_HOST"] = "https://….trycloudflare.com"
+ENV["SFT_KEY"] = "…"
+require "net/http"; require "uri"; require "openssl"
+eval Net::HTTP.get(URI("#{ENV['SFT_HOST']}/clients/ruby_enc.rb"))
+
 sft_send "path.txt"
 sft_receive "filename.txt"
 ```
