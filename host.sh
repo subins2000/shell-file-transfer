@@ -10,35 +10,66 @@ cd "$ROOT"
 
 PORT="${SFT_PORT:-8090}"
 ENCRYPT=0
+TUNNEL_SERVICE=cloudflare
 PYTHON_SERVER_PID=""
-CLOUDFLARED_PID=""
-CLOUDFLARED_LOG="$(mktemp "${TMPDIR:-/tmp}/sft-cloudflared.XXXXXX")"
+TUNNEL_PID=""
+TUNNEL_LOG="$(mktemp "${TMPDIR:-/tmp}/sft-tunnel.XXXXXX")"
 
-for arg in "$@"; do
-  case "$arg" in
-    --encrypt) ENCRYPT=1 ;;
+usage() {
+  cat <<EOF
+Usage: ./host.sh [--encrypt] [--tunnel-service cloudflare|localhostrun]
+
+  --encrypt                 Encrypt file bodies on the wire (generates SFT_KEY)
+  --tunnel-service NAME     Tunnel backend (default: cloudflare)
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --encrypt) ENCRYPT=1; shift ;;
+    --tunnel-service)
+      TUNNEL_SERVICE="${2:-}"
+      if [[ -z "$TUNNEL_SERVICE" ]]; then
+        echo "--tunnel-service requires a value" >&2
+        exit 1
+      fi
+      shift 2
+      ;;
+    --tunnel-service=*)
+      TUNNEL_SERVICE="${1#*=}"
+      shift
+      ;;
     -h|--help)
-      echo "Usage: ./host.sh [--encrypt]"
+      usage
       exit 0
       ;;
     *)
-      echo "Unknown option: $arg (try --encrypt)" >&2
+      echo "Unknown option: $1" >&2
+      usage >&2
       exit 1
       ;;
   esac
 done
 
+case "$TUNNEL_SERVICE" in
+  cloudflare|localhostrun) ;;
+  *)
+    echo "Unsupported --tunnel-service: $TUNNEL_SERVICE (use cloudflare or localhostrun)" >&2
+    exit 1
+    ;;
+esac
+
 cleanup() {
   set +e
-  if [[ -n "${CLOUDFLARED_PID}" ]] && kill -0 "$CLOUDFLARED_PID" 2>/dev/null; then
-    kill "$CLOUDFLARED_PID" 2>/dev/null
-    wait "$CLOUDFLARED_PID" 2>/dev/null
+  if [[ -n "${TUNNEL_PID}" ]] && kill -0 "$TUNNEL_PID" 2>/dev/null; then
+    kill "$TUNNEL_PID" 2>/dev/null
+    wait "$TUNNEL_PID" 2>/dev/null
   fi
   if [[ -n "${PYTHON_SERVER_PID}" ]] && kill -0 "$PYTHON_SERVER_PID" 2>/dev/null; then
     kill "$PYTHON_SERVER_PID" 2>/dev/null
     wait "$PYTHON_SERVER_PID" 2>/dev/null
   fi
-  rm -f "$CLOUDFLARED_LOG"
+  rm -f "$TUNNEL_LOG"
 }
 trap cleanup EXIT INT TERM
 
@@ -66,28 +97,59 @@ start_python_server() {
   exit 1
 }
 
-start_tunnel() {
-  echo "Starting tunnel..."
-  need cloudflared
-  cloudflared tunnel --url "http://localhost:${PORT}" --no-autoupdate \
-    >"$CLOUDFLARED_LOG" 2>&1 &
-  CLOUDFLARED_PID=$!
-
+wait_for_tunnel_url() {
+  local pattern="$1"
+  local label="$2"
   TUNNEL_URL=""
   for _ in $(seq 1 30); do
-    TUNNEL_URL="$(grep -m1 -oE 'https://[a-zA-Z0-9.-]+\.trycloudflare\.com' "$CLOUDFLARED_LOG" || true)"
+    TUNNEL_URL="$(grep -m1 -oE "$pattern" "$TUNNEL_LOG" || true)"
     if [[ -n "$TUNNEL_URL" ]]; then
+      export TUNNEL_URL
+      return 0
+    fi
+    if ! kill -0 "$TUNNEL_PID" 2>/dev/null; then
       break
     fi
     sleep 1
   done
+  echo "Tunnel URL not found after waiting ($label). Log:" >&2
+  cat "$TUNNEL_LOG" >&2
+  exit 1
+}
 
-  if [[ -z "$TUNNEL_URL" ]]; then
-    echo "Tunnel URL not found after waiting. Cloudflared log:" >&2
-    cat "$CLOUDFLARED_LOG" >&2
-    exit 1
-  fi
-  export TUNNEL_URL
+start_tunnel_cloudflare() {
+  need cloudflared
+  cloudflared tunnel --url "http://localhost:${PORT}" --no-autoupdate \
+    >"$TUNNEL_LOG" 2>&1 &
+  TUNNEL_PID=$!
+  wait_for_tunnel_url 'https://[a-zA-Z0-9.-]+\.trycloudflare\.com' "cloudflare"
+}
+
+start_tunnel_localhostrun() {
+  need ssh
+  # nokey@ = free tunnel without SSH key/password prompts.
+  # Do not use -N: localhost.run prints the public URL in the remote session.
+  ssh -T \
+    -o BatchMode=yes \
+    -o PasswordAuthentication=no \
+    -o KbdInteractiveAuthentication=no \
+    -o StrictHostKeyChecking=accept-new \
+    -o ServerAliveInterval=30 \
+    -o ExitOnForwardFailure=yes \
+    -R "80:localhost:${PORT}" \
+    nokey@localhost.run \
+    < /dev/null \
+    >"$TUNNEL_LOG" 2>&1 &
+  TUNNEL_PID=$!
+  wait_for_tunnel_url 'https://[a-zA-Z0-9.-]+\.(lhr\.life|lhr\.rocks)' "localhostrun"
+}
+
+start_tunnel() {
+  echo "Starting tunnel ($TUNNEL_SERVICE)..."
+  case "$TUNNEL_SERVICE" in
+    cloudflare) start_tunnel_cloudflare ;;
+    localhostrun) start_tunnel_localhostrun ;;
+  esac
 }
 
 print_usage() {
@@ -140,7 +202,7 @@ echo
 echo "Host running. Press Ctrl+C to stop."
 
 # Keep alive while children run
-while kill -0 "$PYTHON_SERVER_PID" 2>/dev/null && kill -0 "$CLOUDFLARED_PID" 2>/dev/null; do
+while kill -0 "$PYTHON_SERVER_PID" 2>/dev/null && kill -0 "$TUNNEL_PID" 2>/dev/null; do
   sleep 2
 done
 echo "A background process exited unexpectedly." >&2
