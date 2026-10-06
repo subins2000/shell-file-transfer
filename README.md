@@ -28,7 +28,7 @@ For your local host machine:
 - `openssl` (only if using `--encrypt`)
 
 For the remote shell:
-- Bash: `curl` (and `openssl` + `python3` for encrypted client)
+- Bash: `curl` (and `openssl` for encrypted client)
 - Ruby console: stdlib only (`openssl` gem is part of MRI stdlib)
 
 ## How to use
@@ -85,6 +85,22 @@ sft_receive "filename.txt"
 
 Place files to send to remote in the host's `storage/` folder. Then, use `sft_receive 'filename.txt'` in the remote shell.
 
-Files sent using `sft_send 'path.txt'` from remote is also stored in the host's `storage/` folder.
+Files sent using `sft_send 'path.txt'` from remote is also stored in the host's `storage/` folder. If same filename exists, it is overwritten.
+
+### Raw
+
+The raw way to send via cURL:
+
+```bash
+export SFT_HOST='https://….trycloudflare.com'
+export filename='file.txt'
+curl -fsS -X POST \
+    -H "Content-Type: application/octet-stream" \
+    --data-binary @"$filename" \
+    "${SFT_HOST}/send?name=$filename" \
+    >/dev/null
+```
+
+## Misc
 
 Wire encryption uses AES-256-CBC via `openssl enc -pbkdf2`. Payload is encrypted in transit, so the tunnel is never able to read it.

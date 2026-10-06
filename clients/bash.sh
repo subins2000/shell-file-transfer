@@ -6,6 +6,18 @@ if [[ -z "${SFT_HOST:-}" ]]; then
   return 1 2>/dev/null || exit 1
 fi
 
+sft_urlencode() {
+  local LC_ALL=C s="$1" i c out=
+  for ((i = 0; i < ${#s}; i++)); do
+    c="${s:i:1}"
+    case "$c" in
+      [a-zA-Z0-9.~_-]) out+="$c" ;;
+      *) printf -v c '%%%02X' "'$c"; out+="$c" ;;
+    esac
+  done
+  printf '%s' "$out"
+}
+
 sft_send() {
   local path="$1"
   if [[ -z "$path" ]]; then
@@ -18,7 +30,7 @@ sft_send() {
   fi
   local name encoded
   name="$(basename "$path")"
-  encoded="$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$name")"
+  encoded="$(sft_urlencode "$name")"
   curl -fsS -X POST \
     -H "Content-Type: application/octet-stream" \
     --data-binary @"$path" \
@@ -35,6 +47,6 @@ sft_receive() {
   fi
   local base
   base="$(basename "$name")"
-  curl -fsS -o "$base" "${SFT_HOST}/files/${base}"
+  curl -fsS -o "$base" "${SFT_HOST}/files/$(sft_urlencode "$base")"
   echo "received $base"
 }
